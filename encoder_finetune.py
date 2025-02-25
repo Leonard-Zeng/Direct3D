@@ -39,7 +39,7 @@ def parse_args():
     parser.add_argument(
         "--voxel_resolution",
         type=int,
-        default=128,
+        default=512,
         help="Voxel resolution used in DummyDataset and get_mesh_logits."
     )
     parser.add_argument(
@@ -84,7 +84,7 @@ def download_objaverse(ratio=0.01):
     dataset = load_dataset("allenai/objaverse-xl")
     dataset = dataset['train'].train_test_split(test_size=ratio)['test']
     for data in dataset:
-        print(data)
+        # print(data)
         break
 
 def kl_regularization(mu, logvar):
@@ -122,7 +122,7 @@ def train_one_epoch(model, train_loader, val_loader, optimizer, bce, kl, kl_scal
         loss = bce_loss + kl_scale * kl_regularization(posterior.mean, posterior.logvar)
         loss.backward()
         optimizer.step()
-        print(model.encoder.proj_in.weight)
+        # print(model.encoder.proj_in.weight)
 
     validation_losses = []
     with torch.no_grad():

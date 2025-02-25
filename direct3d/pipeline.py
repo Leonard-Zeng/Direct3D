@@ -118,6 +118,7 @@ class Direct3dPipeline(object):
 
         image = self.prepare_image(image, remove_background)
         semantic_cond, pixel_cond = self.encode_image(image, do_classifier_free_guidance)
+        print(generator)
         latents = self.prepare_latents(
             batch_size=batch_size,
             num_channels_latents=self.vae.latent_shape[0],
@@ -131,6 +132,8 @@ class Direct3dPipeline(object):
         extra_step_kwargs = {
             "generator": generator
         }
+
+        print(latents.shape, semantic_cond.shape, pixel_cond.shape)
 
         for i, t in enumerate(tqdm(timesteps, desc="Diffusion Sampling:")):
             latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
@@ -156,4 +159,52 @@ class Direct3dPipeline(object):
         outputs = {"meshes": meshes, "latents": latents}
 
         return outputs
-        
+
+    @torch.no_grad()
+    def vae_reconstruction(
+            self, latents: torch.Tensor,
+            num_inference_steps: int = 50,
+            guidance_scale: float = 4.0,
+            generator: Optional[torch.Generator] = None,
+            mc_threshold: float = -2.0,
+    ):
+        batch_size = 1
+        do_classifier_free_guidance = guidance_scale > 0
+
+        self.scheduler.set_timesteps(num_inference_steps, device=self.device)
+        timesteps = self.scheduler.timesteps
+
+        # semantic_cond, pixel_cond set to empty
+        empty_cond1 = torch.ones((2, 257, 1024)).to(self.device)
+        empty_cond2 = torch.ones((2, 257, 1024)).to(self.device)
+
+        extra_step_kwargs = {
+            "generator": generator
+        }
+
+        print(latents.shape, empty_cond1.shape, empty_cond2.shape)
+
+        for i, t in enumerate(tqdm(timesteps, desc="Diffusion Sampling:")):
+            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+
+            t = t.expand(latent_model_input.shape[0])
+
+            noise_pred = self.dit(
+                hidden_states=latent_model_input,
+                timestep=t,
+                encoder_hidden_states=empty_cond1,
+                pixel_hidden_states=empty_cond2,
+            )
+
+            if do_classifier_free_guidance:
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+            latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+
+        latents = 1. / self.vae.latents_scale * latents + self.vae.latents_shift
+        meshes = self.vae.decode_mesh(latents, mc_threshold=mc_threshold)
+        outputs = {"meshes": meshes, "latents": latents}
+
+        return outputs

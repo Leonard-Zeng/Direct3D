@@ -7,3 +7,5 @@ numpy
 transformers==4.40.2
 diffusers
 rembg
+datasets
+pyassimp

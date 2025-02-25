@@ -447,6 +447,44 @@ class D3D_VAE(nn.Module):
                                      mc_threshold=mc_threshold)
         return mesh
 
+    def get_mesh_logits(self,
+                        latents,
+                        bounds: Union[Tuple[float], List[float], float] = 1.0,
+                        voxel_resolution: int = 512,
+                        chunk_size: int = 50000):
+        latents = self.decode(latents, unrollout=True) #triplane
+
+        batch_size = len(latents)
+
+        if isinstance(bounds, float):
+            bounds = [-bounds, -bounds, -bounds, bounds, bounds, bounds]
+        bbox_min, bbox_max = np.array(bounds[0:3]), np.array(bounds[3:6])
+
+        x = torch.linspace(bbox_min[0], bbox_max[0], steps=int(voxel_resolution) + 1)
+        y = torch.linspace(bbox_min[1], bbox_max[1], steps=int(voxel_resolution) + 1)
+        z = torch.linspace(bbox_min[2], bbox_max[2], steps=int(voxel_resolution) + 1)
+        xs, ys, zs = torch.meshgrid(x, y, z, indexing='ij')
+        xyz = torch.stack((xs, ys, zs), dim=-1)
+        xyz = xyz.reshape(-1, 3)
+
+        logits_total = []
+        positions_total = []
+        # print(xyz.shape)
+        for start in tqdm(range(0, xyz.shape[0], chunk_size), desc="Triplane Sampling:"):
+            positions = xyz[start:start + chunk_size].to(latents.device)
+            positions = repeat(positions, "p d -> b p d", b=batch_size)
+
+
+            triplane_features = sample_from_planes(self.plane_axes.to(latents.device),
+                                                   latents, positions,
+                                                   box_warp=2.0)
+            logits = self.occ_decoder(triplane_features)
+            logits_total.append(logits)
+            positions_total.append(positions)
+            # print(positions.shape, triplane_features.shape. logits.shape)
+        return logits_total, positions_total, chunk_size
+
+
     def triplane2mesh(self,
                     latents: torch.FloatTensor,
                     bounds: Union[Tuple[float], List[float], float] = 1.0,

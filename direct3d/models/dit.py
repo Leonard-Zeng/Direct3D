@@ -431,5 +431,7 @@ class D3D_DiT(nn.Module):
             shape=(-1, self.out_channels, height * self.patch_size, width * self.patch_size)
         )
 
+        # print(output.min(), output.max(), output.mean(), output.std())
+
         return output
 
